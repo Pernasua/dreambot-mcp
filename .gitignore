@@ -1,0 +1,11 @@
+/build/
+/dist/
+/lib/
+*.class
+*.log
+*.db
+*.sqlite
+*.sqlite3
+DreamBot/
+Launcher.jar
+dreambot-client.jar

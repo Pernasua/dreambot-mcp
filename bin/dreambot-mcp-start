@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODULE="$(cd "$SCRIPT_DIR/.." && pwd)"
+WORKSPACE_ROOT="$(cd "$MODULE/../.." && pwd)"
+
+if [[ -f "$WORKSPACE_ROOT/dist/dreambot-mcp.jar" || -f "$WORKSPACE_ROOT/lib/dreambot-client.jar" ]]; then
+  OUT_DIR="${DREAMBOT_MCP_OUT_DIR:-$WORKSPACE_ROOT/dist}"
+else
+  OUT_DIR="${DREAMBOT_MCP_OUT_DIR:-$MODULE/dist}"
+fi
+
+JAR="${DREAMBOT_MCP_JAR:-$OUT_DIR/dreambot-mcp.jar}"
+if [[ ! -f "$JAR" ]]; then
+  "$SCRIPT_DIR/build" >&2
+fi
+
+exec java -jar "$JAR" mcp "$@"
