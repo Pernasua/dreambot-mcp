@@ -3,6 +3,10 @@
 Standalone MCP server that runs inside a local DreamBot client as the
 `DreamBot MCP` script.
 
+The script starts a background MCP runtime, installs a top-level `DreamBot MCP`
+toolbar menu, and releases the DreamBot script slot by default, so another
+script can run while an AI agent keeps using MCP.
+
 Once the script is started, MCP clients connect directly to:
 
 ```text
@@ -76,6 +80,8 @@ Startup args:
 - `--mcp-login-solver-policy=after_initial_login`
 - `--mcp-paint=false`
 - `--mcp-debug=true`
+- `--mcp-release-slot=true`
+- `--mcp-keep-script-slot`
 
 Equivalent JVM/system environment settings:
 
@@ -85,6 +91,7 @@ Equivalent JVM/system environment settings:
 - `DREAMBOT_MCP_LOGIN_SOLVER_POLICY`: `after_initial_login`, `enabled`, or `disabled`; default `after_initial_login`
 - `DREAMBOT_MCP_PAINT`: show the runtime paint overlay, default `false`
 - `DREAMBOT_MCP_DEBUG`: print startup/runtime debug lines, default `true`
+- `DREAMBOT_MCP_RELEASE_SLOT`: release the script slot after startup, default `true`
 
 `after_initial_login` lets DreamBot's own Login Handler perform the initial
 configured-account login. Once the game reaches logged-in state, `DreamBot MCP`
@@ -94,6 +101,10 @@ account configured in this client before running the requested tool.
 
 The default loopback bind is intentional. Do not expose this port to the public
 internet.
+
+The `DreamBot MCP` toolbar menu remains available after the script slot is
+released. It shows runtime status and the MCP URL, and includes `Copy MCP URL`
+and `Log Status` actions.
 
 At startup and in the paint overlay, the script prints the local MCP URL and
 LAN candidate URLs for the current network namespace. If the bind host is still
@@ -129,8 +140,8 @@ Common tools:
 it as MCP image content. By default it captures the game canvas; pass
 `target="screen"` to capture the full display instead.
 
-`dreambot_java_eval` compiles a Java expression or block on the DreamBot script
-thread. Lambdas and streams are not supported; use ordinary loops. Example
+`dreambot_java_eval` compiles a Java expression or block on the MCP background
+runtime. Lambdas and streams are not supported; use ordinary loops. Example
 expression:
 
 ```java
@@ -149,7 +160,7 @@ For looped behavior, use the resident task runner instead.
 ## Resident Java Tasks
 
 `dreambot_agent_task_start` compiles Java source in memory and runs it from the
-existing `DreamBot MCP` script's `onLoop`. It does not start another DreamBot
+existing `DreamBot MCP` background runtime. It does not start another DreamBot
 script or require files on disk.
 
 Loop-body mode. Use `ctx.log(...)` for messages returned by

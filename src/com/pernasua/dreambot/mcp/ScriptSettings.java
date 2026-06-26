@@ -9,14 +9,16 @@ final class ScriptSettings {
     final boolean allowLifecycle;
     final boolean paintEnabled;
     final boolean debugEnabled;
+    final boolean releaseScriptSlot;
 
-    private ScriptSettings(String bindHost, int port, LoginSolverPolicy loginSolverPolicy, boolean allowLifecycle, boolean paintEnabled, boolean debugEnabled) {
+    private ScriptSettings(String bindHost, int port, LoginSolverPolicy loginSolverPolicy, boolean allowLifecycle, boolean paintEnabled, boolean debugEnabled, boolean releaseScriptSlot) {
         this.bindHost = bindHost;
         this.port = port;
         this.loginSolverPolicy = loginSolverPolicy;
         this.allowLifecycle = allowLifecycle;
         this.paintEnabled = paintEnabled;
         this.debugEnabled = debugEnabled;
+        this.releaseScriptSlot = releaseScriptSlot;
     }
 
     static ScriptSettings from(String... args) {
@@ -27,6 +29,7 @@ final class ScriptSettings {
         builder.allowLifecycle = parseBool(setting("dreambot.mcp.allowLifecycle", "DREAMBOT_MCP_ALLOW_LIFECYCLE", "true"));
         builder.paintEnabled = parseBool(setting("dreambot.mcp.paint", "DREAMBOT_MCP_PAINT", "false"));
         builder.debugEnabled = parseBool(setting("dreambot.mcp.debug", "DREAMBOT_MCP_DEBUG", "true"));
+        builder.releaseScriptSlot = parseBool(setting("dreambot.mcp.releaseScriptSlot", "DREAMBOT_MCP_RELEASE_SLOT", "true"));
         builder.applyArgs(args == null ? new String[0] : args);
         return new ScriptSettings(
             builder.bindHost,
@@ -34,7 +37,8 @@ final class ScriptSettings {
             builder.loginSolverPolicy,
             builder.allowLifecycle,
             builder.paintEnabled,
-            builder.debugEnabled
+            builder.debugEnabled,
+            builder.releaseScriptSlot
         );
     }
 
@@ -52,7 +56,8 @@ final class ScriptSettings {
             + " allowLifecycle=" + allowLifecycle
             + " loginSolverPolicy=" + loginSolverPolicy.value
             + " paint=" + paintEnabled
-            + " debug=" + debugEnabled;
+            + " debug=" + debugEnabled
+            + " releaseScriptSlot=" + releaseScriptSlot;
     }
 
     private static String setting(String property, String env, String defaultValue) {
@@ -103,6 +108,7 @@ final class ScriptSettings {
         boolean allowLifecycle;
         boolean paintEnabled;
         boolean debugEnabled;
+        boolean releaseScriptSlot;
 
         void applyArgs(String[] args) {
             for (int i = 0; i < args.length; i++) {
@@ -148,6 +154,10 @@ final class ScriptSettings {
                 paintEnabled = parseBool(value);
             } else if ("mcp_debug".equals(key) || "debug".equals(key)) {
                 debugEnabled = parseBool(value);
+            } else if ("mcp_release_slot".equals(key) || "release_slot".equals(key) || "release_script_slot".equals(key)) {
+                releaseScriptSlot = parseBool(value);
+            } else if ("mcp_keep_script_slot".equals(key) || "keep_script_slot".equals(key)) {
+                releaseScriptSlot = !parseBool(value);
             }
         }
 

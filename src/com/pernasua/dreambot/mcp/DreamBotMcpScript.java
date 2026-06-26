@@ -91,9 +91,11 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -115,6 +117,9 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private static final long AUTO_LOGIN_TIMEOUT_MS = 30000L;
     private static final long AUTO_LOGIN_ATTEMPT_INTERVAL_MS = 1200L;
     private static final long AUTO_LOGIN_POLL_MS = 150L;
+    private static final String MCP_BOOTSTRAP_PROPERTY = "pernasua.mcp.bootstrap.active";
+    private static final Object ACTIVE_LOCK = new Object();
+    private static DreamBotMcpScript activeRuntime;
 
     private final BlockingQueue<RuntimeTask> queue = new LinkedBlockingQueue<>(64);
     private final RecentMessages recentMessages = new RecentMessages(200);
@@ -131,12 +136,16 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private volatile boolean started;
     private volatile boolean initialLoginObserved;
     private volatile boolean loginSolverDisabled;
+    private volatile boolean runtimeRunning;
+    private volatile boolean releaseRequested;
     private volatile boolean scriptStopRequested;
     private volatile long scriptStopNotBeforeMs;
     private volatile String scriptStopReason = "";
     private volatile String mcpLocalUrlSummary = "";
     private volatile String mcpLanUrlSummary = "";
     private volatile String mcpBindSummary = "";
+    private Thread runtimeThread;
+    private DreamBotMcpMenu mcpMenu;
 
     @Override
     public void onStart() {
@@ -149,11 +158,37 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     }
 
     private synchronized void start(String... args) {
+        ScriptSettings requested = ScriptSettings.from(args);
+        DreamBotMcpScript runtime;
+        synchronized (ACTIVE_LOCK) {
+            if (activeRuntime != null && activeRuntime.runtimeActive()) {
+                runtime = activeRuntime;
+            } else {
+                activeRuntime = this;
+                runtime = this;
+            }
+        }
+        if (runtime != this) {
+            debug("DreamBotMcpScript runtime already active at " + runtime.settings.mcpUrl());
+            runtime.publishBootstrapProperties();
+            runtime.ensureMenuAttached();
+            if (requested.releaseScriptSlot) {
+                requestScriptSlotRelease("runtime already active");
+            }
+            return;
+        }
+        startRuntime(requested);
+        if (requested.releaseScriptSlot) {
+            requestScriptSlotRelease("runtime started");
+        }
+    }
+
+    private synchronized void startRuntime(ScriptSettings requested) {
         if (started) {
             return;
         }
         started = true;
-        settings = ScriptSettings.from(args);
+        settings = requested == null ? ScriptSettings.from() : requested;
         refreshMcpAddressSummary();
         startedAt = System.currentTimeMillis();
         ScriptRuntimeClient runtimeClient = new ScriptRuntimeClient(this::route);
@@ -174,6 +209,24 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             debug("DreamBotMcpScript leaving Login Handler random solver enabled");
         }
         startHttpServer();
+        startRuntimeLoop();
+        publishBootstrapProperties();
+        ensureMenuAttached();
+    }
+
+    private void publishBootstrapProperties() {
+        System.setProperty(MCP_BOOTSTRAP_PROPERTY, "true");
+        System.setProperty("pernasua.mcp.port", String.valueOf(settings.port));
+        System.setProperty("pernasua.mcp.url", settings.mcpUrl());
+    }
+
+    private synchronized void ensureMenuAttached() {
+        if (mcpMenu == null) {
+            mcpMenu = DreamBotMcpMenu.attach(this);
+        } else {
+            mcpMenu.ensureAttached();
+            mcpMenu.refresh();
+        }
     }
 
     @Override
@@ -187,6 +240,34 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
 
     @Override
     public int onLoop() {
+        return settings != null && settings.releaseScriptSlot ? 600 : 100;
+    }
+
+    private void startRuntimeLoop() {
+        runtimeRunning = true;
+        runtimeThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                runtimeLoop();
+            }
+        }, "dreambot-mcp-runtime-loop");
+        runtimeThread.setDaemon(true);
+        runtimeThread.start();
+    }
+
+    private void runtimeLoop() {
+        while (runtimeRunning) {
+            int waitMs = runtimeTick();
+            try {
+                Thread.sleep(waitMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    private int runtimeTick() {
         long now = System.currentTimeMillis();
         lastLoopAt = now;
         updateLoginSolverPolicy();
@@ -208,11 +289,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
 
     @Override
     public void onExit() {
-        if (httpServer != null) {
-            httpServer.close();
-            httpServer = null;
-        }
-        debug("DreamBotMcpScript stopped");
+        debug("DreamBotMcpScript script slot released; MCP runtime remains active.");
     }
 
     @Override
@@ -299,6 +376,28 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             return value == null ? "" : value;
         }
         return value.substring(0, max - 3) + "...";
+    }
+
+    private boolean runtimeActive() {
+        return runtimeRunning && httpServer != null;
+    }
+
+    String runtimeMenuStatus() {
+        return "Runtime: " + (runtimeActive() ? "Running" : "Stopped");
+    }
+
+    String runtimeMenuUrl() {
+        String url = runtimeMcpUrl();
+        return url == null || url.isEmpty() ? "MCP URL: unavailable" : "MCP URL: " + url;
+    }
+
+    String runtimeMcpUrl() {
+        ScriptSettings active = settings;
+        return active == null ? "" : active.mcpUrl();
+    }
+
+    void logRuntimeStatus() {
+        log("DreamBot MCP status: " + healthJson());
     }
 
     private void debug(String message) {
@@ -541,6 +640,9 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             + ",\"mcp_path\":" + quote(McpHttpEndpoint.PATH)
             + ",\"mcp_url\":" + quote(settings.mcpUrl())
             + ",\"allow_lifecycle\":" + settings.allowLifecycle
+            + ",\"release_script_slot\":" + settings.releaseScriptSlot
+            + ",\"runtime_running\":" + runtimeRunning
+            + ",\"background_runtime\":true"
             + ",\"login_solver_policy\":" + quote(settings.loginSolverPolicy.value)
             + ",\"login_solver_disabled\":" + loginSolverDisabled
             + ",\"initial_login_observed\":" + initialLoginObserved
@@ -625,7 +727,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "map_angle", Client.getMapAngle()).append(",");
         field(sb, "viewport_width", Client.getViewportWidth()).append(",");
         field(sb, "viewport_height", Client.getViewportHeight()).append(",");
-        field(sb, "host", Client.getHost()).append(",");
+        field(sb, "host", safeClientHost()).append(",");
         field(sb, "world", safeCurrentWorld()).append(",");
         sb.append("\"destination\":").append(tileJson(destination)).append(",");
         sb.append("\"camera\":").append(cameraJson()).append(",");
@@ -712,6 +814,11 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         } catch (Throwable ignored) {
             return 0;
         }
+    }
+
+    private String safeClientHost() {
+        // Client.getHost() can trigger RuneLite world lookup from telemetry and block the client thread.
+        return "";
     }
 
     private String skillsJson() {
@@ -1189,8 +1296,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             if ("/action/client/logout".equals(path)) {
                 disableLoginSolver();
                 boolean result = Client.logout();
-                requestScriptStop("client.logout");
-                return "{\"ok\":true,\"action\":\"client.logout\",\"result\":" + result + ",\"script_stop_requested\":true}";
+                return "{\"ok\":true,\"action\":\"client.logout\",\"result\":" + result + ",\"script_stop_requested\":false}";
             }
             if ("/action/client/focus".equals(path)) {
                 Client.gainFocus();
@@ -1705,6 +1811,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private String questsJson(Map<String, String> query) {
         String name = queryString(query, "name", queryString(query, "quest", ""));
         boolean all = queryBool(query, "all", name.isEmpty());
+        String stateFilter = normalizeName(queryString(query, "state", ""));
         StringBuilder sb = new StringBuilder("{\"ok\":true");
         field(sb.append(","), "quest_points", Quests.getQuestPoints());
         if (!name.isEmpty()) {
@@ -1712,8 +1819,25 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             sb.append(",\"quest\":").append(quest == null ? "null" : questJson(quest));
         } else if (all) {
             sb.append(",\"quests\":[");
+            // Quest.values() exposes the same underlying quest under more than one
+            // enum alias (e.g. CORSAIR_CURSE and THE_CORSAIR_CURSE share varbit
+            // 6071), so dedupe by the (config_id, varbit_id) signature that uniquely
+            // identifies a quest.
+            Set<String> seen = new HashSet<>();
             boolean first = true;
             for (Quest quest : Quest.values()) {
+                if (quest == null || !questStateMatches(quest, stateFilter)) {
+                    continue;
+                }
+                int configId = quest.getConfigId();
+                int varBitId = quest.getVarBitId();
+                // Real quests are keyed by exactly one of config/varbit; aliases of
+                // the same quest share that key. Fall back to the enum name when a
+                // quest has neither id so two id-less quests are not merged.
+                String signature = (configId == -1 && varBitId == -1) ? questName(quest) : configId + ":" + varBitId;
+                if (!seen.add(signature)) {
+                    continue;
+                }
                 if (!first) {
                     sb.append(",");
                 }
@@ -1724,6 +1848,27 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         }
         sb.append("}");
         return sb.toString();
+    }
+
+    // Optional ?state= filter. Empty (default) returns every quest so existing
+    // callers are unaffected; in_progress is the common case for an agent
+    // tracking what it can act on right now.
+    private boolean questStateMatches(Quest quest, String normalizedFilter) {
+        if (normalizedFilter == null || normalizedFilter.isEmpty()) {
+            return true;
+        }
+        boolean started = quest.isStarted();
+        boolean finished = quest.isFinished();
+        if ("notstarted".equals(normalizedFilter)) {
+            return !started;
+        }
+        if ("started".equals(normalizedFilter) || "inprogress".equals(normalizedFilter)) {
+            return started && !finished;
+        }
+        if ("finished".equals(normalizedFilter) || "complete".equals(normalizedFilter) || "completed".equals(normalizedFilter)) {
+            return finished;
+        }
+        return true;
     }
 
     private String questJson(Quest quest) {
@@ -1763,10 +1908,46 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         return sb.toString();
     }
 
+    // Existing-and-sorted by relevance: on-screen first, then nearest. The
+    // MAX_ENTITIES cap below truncates *after* this ordering, so the entities
+    // the agent is most likely to act on survive instead of an arbitrary 40.
+    private <T extends Entity> List<T> byRelevance(List<T> entities) {
+        List<Ranked<T>> ranked = new ArrayList<>();
+        for (T entity : safe(entities)) {
+            if (entity == null || !entity.exists()) {
+                continue;
+            }
+            double distance;
+            try {
+                distance = entity.distance();
+            } catch (Throwable ignored) {
+                distance = Double.MAX_VALUE;
+            }
+            int onScreen;
+            try {
+                onScreen = entity.isOnScreen() ? 0 : 1;
+            } catch (Throwable ignored) {
+                onScreen = 1;
+            }
+            ranked.add(new Ranked<>(entity, onScreen, distance));
+        }
+        ranked.sort((a, b) -> {
+            if (a.onScreen != b.onScreen) {
+                return Integer.compare(a.onScreen, b.onScreen);
+            }
+            return Double.compare(a.distance, b.distance);
+        });
+        List<T> out = new ArrayList<>();
+        for (Ranked<T> item : ranked) {
+            out.add(item.entity);
+        }
+        return out;
+    }
+
     private String playersJson(List<Player> players) {
         StringBuilder sb = new StringBuilder("[");
         int count = 0;
-        for (Player player : safe(players)) {
+        for (Player player : byRelevance(players)) {
             if (player == null || !player.exists()) {
                 continue;
             }
@@ -1805,7 +1986,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private String npcsJson(List<NPC> npcs) {
         StringBuilder sb = new StringBuilder("[");
         int count = 0;
-        for (NPC npc : safe(npcs)) {
+        for (NPC npc : byRelevance(npcs)) {
             if (npc == null || !npc.exists()) {
                 continue;
             }
@@ -1825,7 +2006,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private String objectsJson(List<GameObject> objects) {
         StringBuilder sb = new StringBuilder("[");
         int count = 0;
-        for (GameObject object : safe(objects)) {
+        for (GameObject object : byRelevance(objects)) {
             if (object == null || !object.exists()) {
                 continue;
             }
@@ -1845,7 +2026,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private String groundItemsJson(List<GroundItem> items) {
         StringBuilder sb = new StringBuilder("[");
         int count = 0;
-        for (GroundItem item : safe(items)) {
+        for (GroundItem item : byRelevance(items)) {
             if (item == null || !item.exists()) {
                 continue;
             }
@@ -2418,6 +2599,57 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         scriptStopRequested = true;
     }
 
+    private void requestScriptSlotRelease(final String reason) {
+        if (releaseRequested) {
+            return;
+        }
+        releaseRequested = true;
+        try {
+            stop();
+        } catch (Throwable ignored) {
+        }
+
+        Thread release = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                for (int i = 0; i < 8; i++) {
+                    try {
+                        Thread.sleep(i == 0 ? 100L : 250L);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    try {
+                        ScriptManager manager = ScriptManager.getScriptManager();
+                        if (manager == null) {
+                            return;
+                        }
+                        Object current = manager.getCurrentScript();
+                        if (current != DreamBotMcpScript.this) {
+                            return;
+                        }
+                        if (manager.isRunning()) {
+                            debug("DreamBotMcpScript releasing script slot after " + reason);
+                            manager.stop();
+                        }
+                        try {
+                            DreamBotMcpScript.this.stop();
+                        } catch (Throwable ignored) {
+                        }
+                        if (!manager.isRunning() || manager.getCurrentScript() != DreamBotMcpScript.this) {
+                            return;
+                        }
+                    } catch (Throwable t) {
+                        System.out.println("DreamBotMcpScript script slot release failed after " + reason + ": " + t);
+                    }
+                }
+                System.out.println("DreamBotMcpScript script slot release request did not finish after " + reason);
+            }
+        }, "dreambot-mcp-slot-release");
+        release.setDaemon(true);
+        release.start();
+    }
+
     private void stopScriptIfRequested() {
         if (!scriptStopRequested || System.currentTimeMillis() < scriptStopNotBeforeMs) {
             return;
@@ -2435,7 +2667,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
                     }
                     try {
                         ScriptManager manager = ScriptManager.getScriptManager();
-                        if (manager != null && manager.isRunning()) {
+                        if (manager != null && manager.isRunning() && manager.getCurrentScript() == DreamBotMcpScript.this) {
                             System.out.println("DreamBotMcpScript stopping current script after " + scriptStopReason);
                             manager.stop();
                         }
@@ -2827,6 +3059,18 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
                 }
             }
             return actionMatches(widgetChild.getActions(), action);
+        }
+    }
+
+    private static final class Ranked<T> {
+        final T entity;
+        final int onScreen;
+        final double distance;
+
+        Ranked(T entity, int onScreen, double distance) {
+            this.entity = entity;
+            this.onScreen = onScreen;
+            this.distance = distance;
         }
     }
 

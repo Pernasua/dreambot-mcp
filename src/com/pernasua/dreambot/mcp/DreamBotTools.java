@@ -101,6 +101,7 @@ final class DreamBotTools {
         Map<String, Object> questProps = props();
         questProps.put("name", Schemas.string("Quest name or enum.", ""));
         questProps.put("all", Schemas.bool("Return all quest states when name is empty.", false));
+        questProps.put("state", Schemas.string("Optional filter when listing all: not_started, in_progress, or finished. Empty returns every quest.", ""));
         tools.add(new Tool("dreambot_quest_state", "Quest State", "Return quest state by DreamBot quest enum/name, or all states.", Schemas.object(questProps), args -> runtime.get(query("/quests", questQuery(args)))));
 
         Map<String, Object> projectionProps = props();
@@ -256,9 +257,9 @@ final class DreamBotTools {
         }, true));
 
         Map<String, Object> javaProps = props();
-        javaProps.put("code", Schemas.string("Java expression or block to compile and run on the DreamBot script thread."));
+        javaProps.put("code", Schemas.string("Java expression or block to compile and run in the DreamBot MCP runtime."));
         javaProps.put("mode", Schemas.string("Java snippet mode.", list("expression", "block"), "expression"));
-        tools.add(new Tool("dreambot_java_eval", "Java Eval", "Compile and run a Java expression or block inside the DreamBot MCP script. Lambdas and streams are not supported; use ordinary loops.", Schemas.object(javaProps, "code"), args -> {
+        tools.add(new Tool("dreambot_java_eval", "Java Eval", "Compile and run a Java expression or block inside the DreamBot MCP runtime. Lambdas and streams are not supported; use ordinary loops.", Schemas.object(javaProps, "code"), args -> {
             Map<String, Object> body = new LinkedHashMap<String, Object>();
             body.put("code", Validators.requireString(args, "code", 20000));
             body.put("mode", Validators.optionalString(args, "mode", "expression", 32, true));
@@ -270,7 +271,7 @@ final class DreamBotTools {
         taskStartProps.put("mode", Schemas.string("Task source mode.", list("loop", "class", "full_class"), "loop"));
         taskStartProps.put("source", Schemas.string("Loop body or full AgentTask class source. In loop mode, use ctx.log(...) for captured logs, ctx.stop(reason) to stop, and return a delay in milliseconds. A negative returned delay stops the task."));
         taskStartProps.put("class_name", Schemas.string("Class name for class mode when it cannot be inferred.", ""));
-        tools.add(new Tool("dreambot_agent_task_start", "Agent Task Start", "Compile and start a resident Java task that runs from DreamBot MCP onLoop. In loop mode, source is the body of onLoop(AgentTask.Context ctx). Use ctx.log(...) for captured task logs, ctx.stop(reason) to stop, and return a delay in milliseconds. Returning a negative delay also stops the task.", Schemas.object(taskStartProps, "source"), args -> {
+        tools.add(new Tool("dreambot_agent_task_start", "Agent Task Start", "Compile and start a resident Java task that runs from the DreamBot MCP background runtime. In loop mode, source is the body of onLoop(AgentTask.Context ctx). Use ctx.log(...) for captured task logs, ctx.stop(reason) to stop, and return a delay in milliseconds. Returning a negative delay also stops the task.", Schemas.object(taskStartProps, "source"), args -> {
             Map<String, Object> body = new LinkedHashMap<String, Object>();
             body.put("name", Validators.optionalString(args, "name", "agent-task", 128, true));
             body.put("mode", Validators.optionalString(args, "mode", "loop", 32, true));
@@ -751,7 +752,48 @@ final class DreamBotTools {
     private List<Object> compactEntities(Object value, String type) {
         List<Object> out = new ArrayList<Object>();
         for (Object item : asIterable(value)) {
-            out.add(compactEntity(asMap(item), type));
+            Map<String, Object> entity = asMap(item);
+            if (isNoiseEntity(entity)) {
+                continue;
+            }
+            out.add(compactEntity(entity, type));
+        }
+        return out;
+    }
+
+    // A row is noise only if it carries no useful signal at all: no real name,
+    // no usable actions, and not on screen. Such rows are unnamed scenery the
+    // agent can neither identify nor interact with, so they only cost tokens.
+    private boolean isNoiseEntity(Map<String, Object> entity) {
+        if (!isBlankName(entity.get("name"))) {
+            return false;
+        }
+        if (!compactActions(entity.get("actions")).isEmpty()) {
+            return false;
+        }
+        Object onScreen = entity.get("on_screen");
+        return !(onScreen instanceof Boolean && ((Boolean) onScreen).booleanValue());
+    }
+
+    private boolean isBlankName(Object value) {
+        if (value == null) {
+            return true;
+        }
+        String name = String.valueOf(value).trim();
+        return name.isEmpty() || "null".equalsIgnoreCase(name);
+    }
+
+    private List<Object> compactActions(Object value) {
+        List<Object> out = new ArrayList<Object>();
+        for (Object action : asIterable(value)) {
+            if (action == null) {
+                continue;
+            }
+            String text = String.valueOf(action).trim();
+            if (text.isEmpty() || "null".equalsIgnoreCase(text)) {
+                continue;
+            }
+            out.add(action);
         }
         return out;
     }
@@ -778,7 +820,9 @@ final class DreamBotTools {
 
     private Map<String, Object> compactEntity(Map<String, Object> entity, String type) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
-        copyUseful(entity, out, "name");
+        if (!isBlankName(entity.get("name"))) {
+            out.put("name", entity.get("name"));
+        }
         copyIfPresent(entity, out, "id");
         if ("player".equals(type) || "npc".equals(type)) {
             copyIfPresent(entity, out, "level");
@@ -793,7 +837,10 @@ final class DreamBotTools {
         copyIfPresent(entity, out, "distance");
         copyIfPresent(entity, out, "on_screen");
         copyIfPresent(entity, out, "tile");
-        copyIfPresent(entity, out, "actions");
+        List<Object> actions = compactActions(entity.get("actions"));
+        if (!actions.isEmpty()) {
+            out.put("actions", actions);
+        }
         return out;
     }
 
@@ -1120,6 +1167,10 @@ final class DreamBotTools {
         String name = Validators.optionalString(args, "name", "", 128, true);
         if (!name.isEmpty()) {
             query.put("name", name);
+        }
+        String state = Validators.optionalString(args, "state", "", 32, true);
+        if (!state.isEmpty()) {
+            query.put("state", state);
         }
         query.put("all", Boolean.valueOf(Validators.optionalBool(args, "all", false)));
         return query;
