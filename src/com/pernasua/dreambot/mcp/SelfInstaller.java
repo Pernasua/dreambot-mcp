@@ -19,8 +19,10 @@ final class SelfInstaller {
         Path jar = currentJar();
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("ok", Boolean.TRUE);
+        result.put("version", BuildInfo.VERSION);
         result.put("jar", jar == null ? "" : jar.toString());
         result.put("script_jar_name", SCRIPT_JAR_NAME);
+        result.put("release_jar_name", "dreambot-mcp-" + BuildInfo.VERSION + ".jar");
         if (jar != null && Files.isRegularFile(jar)) {
             result.put("sha256", sha256(jar));
             try {

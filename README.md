@@ -18,8 +18,9 @@ harness.
 
 ## Install And Connect
 
-Install `dist/dreambot-mcp.jar` into DreamBot's `Scripts` directory, start
-`DreamBot MCP` from DreamBot's Script Manager, then configure your MCP client.
+Install `dist/dreambot-mcp.jar` or the matching `dist/dreambot-mcp-<version>.jar`
+release artifact into DreamBot's `Scripts` directory, start `DreamBot MCP` from
+DreamBot's Script Manager, then configure your MCP client.
 
 Claude Code:
 
@@ -56,6 +57,7 @@ Output:
 
 ```text
 dist/dreambot-mcp.jar
+dist/dreambot-mcp-<version>.jar
 ```
 
 The build shades Janino into the jar so Java eval and resident task compilation

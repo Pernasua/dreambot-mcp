@@ -19,6 +19,13 @@ DEPS="$BUILD/deps"
 OUT_DIR="${DREAMBOT_MCP_OUT_DIR:-$ROOT/dist}"
 OUT_JAR="$OUT_DIR/dreambot-mcp.jar"
 API_JAR="${DREAMBOT_API_JAR:-$ROOT/lib/dreambot-client.jar}"
+VERSION_SOURCE="$SRC/com/pernasua/dreambot/mcp/BuildInfo.java"
+VERSION="$(sed -n 's/.*static final String VERSION = "\([^"]*\)".*/\1/p' "$VERSION_SOURCE" | head -n 1)"
+if [[ -z "$VERSION" ]]; then
+  echo "Could not read DreamBot MCP version from $VERSION_SOURCE" >&2
+  exit 1
+fi
+RELEASE_JAR="$OUT_DIR/dreambot-mcp-$VERSION.jar"
 JANINO_VERSION="3.1.12"
 JANINO_JAR="${DREAMBOT_MCP_JANINO_JAR:-$DEPS/janino-$JANINO_VERSION.jar}"
 COMMONS_COMPILER_JAR="${DREAMBOT_MCP_COMMONS_COMPILER_JAR:-$DEPS/commons-compiler-$JANINO_VERSION.jar}"
@@ -75,11 +82,11 @@ javac --release 11 -encoding UTF-8 -cp "$API_JAR:$JANINO_JAR:$COMMONS_COMPILER_J
   rm -f META-INF/MANIFEST.MF META-INF/*.SF META-INF/*.DSA META-INF/*.RSA
 )
 
-cat > "$MANIFEST" <<'EOF'
+cat > "$MANIFEST" <<EOF
 Manifest-Version: 1.0
 Main-Class: com.pernasua.dreambot.mcp.Main
 Implementation-Title: DreamBot MCP
-Implementation-Version: 2.4.1
+Implementation-Version: $VERSION
 EOF
 
 jar --create \
@@ -88,4 +95,6 @@ jar --create \
   --date=2026-01-01T00:00:00Z \
   -C "$CLASSES" .
 
+cp "$OUT_JAR" "$RELEASE_JAR"
 echo "Built $OUT_JAR"
+echo "Built $RELEASE_JAR"

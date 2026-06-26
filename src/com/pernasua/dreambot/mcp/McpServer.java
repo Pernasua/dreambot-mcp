@@ -12,7 +12,7 @@ import java.util.Map;
 final class McpServer {
     static final String PROTOCOL_VERSION = "2025-06-18";
     static final String SERVER_NAME = "dreambot-mcp";
-    static final String SERVER_VERSION = "2.4.1";
+    static final String SERVER_VERSION = BuildInfo.VERSION;
 
     private final List<Tool> tools;
     private final Map<String, Tool> toolsByName;
