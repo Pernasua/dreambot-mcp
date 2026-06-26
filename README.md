@@ -16,10 +16,10 @@ http://127.0.0.1:17653/mcp
 There is no auth broker, external coordinator, account database, or host
 harness.
 
-## SDN Usage
+## Install And Connect
 
-Add `DreamBot MCP` from DreamBot SDN, start it from DreamBot's Script Manager,
-then configure your MCP client.
+Install `dist/dreambot-mcp.jar` into DreamBot's `Scripts` directory, start
+`DreamBot MCP` from DreamBot's Script Manager, then configure your MCP client.
 
 Claude Code:
 

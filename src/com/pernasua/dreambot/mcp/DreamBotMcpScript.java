@@ -127,6 +127,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private final AgentTaskCompiler agentTaskCompiler = new AgentTaskCompiler();
     private final AgentTaskRunner agentTaskRunner = new AgentTaskRunner();
     private final McpMetrics mcpMetrics = new McpMetrics();
+    private final DreamBotMcpJson json = new DreamBotMcpJson(MAX_ENTITIES);
     private volatile ScriptSettings settings = ScriptSettings.from();
     private McpHttpEndpoint mcpEndpoint;
     private ScriptHttpServer httpServer;
@@ -592,16 +593,16 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             return runMcpRequest(request, () -> widgetsJson(request.query));
         }
         if ("GET".equals(method) && "/ground-items".equals(path)) {
-            return runMcpRequest(request, () -> "{\"ok\":true,\"ground_items\":" + groundItemsJson(GroundItems.all()) + "}");
+            return runMcpRequest(request, () -> "{\"ok\":true,\"ground_items\":" + json.groundItemsJson(GroundItems.all()) + "}");
         }
         if ("GET".equals(method) && "/npcs".equals(path)) {
-            return runMcpRequest(request, () -> "{\"ok\":true,\"npcs\":" + npcsJson(NPCs.all()) + "}");
+            return runMcpRequest(request, () -> "{\"ok\":true,\"npcs\":" + json.npcsJson(NPCs.all()) + "}");
         }
         if ("GET".equals(method) && "/objects".equals(path)) {
-            return runMcpRequest(request, () -> "{\"ok\":true,\"objects\":" + objectsJson(GameObjects.all()) + "}");
+            return runMcpRequest(request, () -> "{\"ok\":true,\"objects\":" + json.objectsJson(GameObjects.all()) + "}");
         }
         if ("GET".equals(method) && "/players".equals(path)) {
-            return runMcpRequest(request, () -> "{\"ok\":true,\"players\":" + playersJson(Players.all()) + "}");
+            return runMcpRequest(request, () -> "{\"ok\":true,\"players\":" + json.playersJson(Players.all()) + "}");
         }
         if ("GET".equals(method) && "/settings".equals(path)) {
             return runMcpRequest(request, () -> settingsJson(request.query));
@@ -678,7 +679,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private String localPlayerJson() {
         try {
             Player player = Players.getLocal();
-            return player == null ? "null" : playerJson(player);
+            return player == null ? "null" : json.playerJson(player);
         } catch (Throwable ignored) {
             return "null";
         }
@@ -729,7 +730,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "viewport_height", Client.getViewportHeight()).append(",");
         field(sb, "host", safeClientHost()).append(",");
         field(sb, "world", safeCurrentWorld()).append(",");
-        sb.append("\"destination\":").append(tileJson(destination)).append(",");
+        sb.append("\"destination\":").append(json.tileJson(destination)).append(",");
         sb.append("\"camera\":").append(cameraJson()).append(",");
         sb.append("\"combat\":{");
         field(sb, "level", Combat.getCombatLevel()).append(",");
@@ -856,10 +857,10 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     }
 
     private String bankJson() {
-        List<Item> items = safe(Bank.all());
+        List<Item> items = json.safe(Bank.all());
         boolean cached = Bank.isCached();
         if ((items == null || items.isEmpty()) && cached) {
-            items = safe(Bank.getBankHistoryCache());
+            items = json.safe(Bank.getBankHistoryCache());
         }
         StringBuilder sb = new StringBuilder("{");
         field(sb, "open", Bank.isOpen()).append(",");
@@ -876,14 +877,14 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private String itemsJson(List<Item> items) {
         StringBuilder sb = new StringBuilder("[");
         int count = 0;
-        for (Item item : safe(items)) {
+        for (Item item : json.safe(items)) {
             if (item == null || item.getId() <= 0) {
                 continue;
             }
             if (count > 0) {
                 sb.append(",");
             }
-            sb.append(itemJson(item));
+            sb.append(json.itemJson(item));
             count++;
         }
         sb.append("]");
@@ -1089,14 +1090,14 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
                 require(!action.isEmpty(), "action is required");
                 NPC npc = targetNpc(body);
                 boolean result = npc != null && npc.interact(action);
-                return interactionResult("npc.interact", result, npc == null ? "null" : npcJson(npc));
+                return interactionResult("npc.interact", result, npc == null ? "null" : json.npcJson(npc));
             }
             if ("/action/object/interact".equals(path)) {
                 String action = stringField(body, "action", "");
                 require(!action.isEmpty(), "action is required");
                 GameObject object = targetObject(body);
                 boolean result = object != null && object.interact(action);
-                return interactionResult("object.interact", result, object == null ? "null" : objectJson(object));
+                return interactionResult("object.interact", result, object == null ? "null" : json.objectJson(object));
             }
             if ("/action/tile/click".equals(path)) {
                 int x = intField(body, "x", Integer.MIN_VALUE);
@@ -1116,32 +1117,32 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
                 require(!action.isEmpty(), "action is required");
                 Player player = targetPlayer(body);
                 boolean result = player != null && player.interact(action);
-                return interactionResult("player.interact", result, player == null ? "null" : playerJson(player));
+                return interactionResult("player.interact", result, player == null ? "null" : json.playerJson(player));
             }
             if ("/action/ground-item/interact".equals(path)) {
                 String action = stringField(body, "action", "");
                 require(!action.isEmpty(), "action is required");
                 GroundItem item = targetGroundItem(body);
                 boolean result = item != null && item.interact(action);
-                return interactionResult("ground_item.interact", result, item == null ? "null" : groundItemJson(item));
+                return interactionResult("ground_item.interact", result, item == null ? "null" : json.groundItemJson(item));
             }
             if ("/action/item/on-object".equals(path)) {
                 Item item = targetInventoryItem(body, "");
                 GameObject object = targetObject(body, "target_");
                 boolean result = item != null && object != null && item.useOn(object);
-                return itemOnResult("item.on_object", result, item, object == null ? "null" : objectJson(object));
+                return itemOnResult("item.on_object", result, item, object == null ? "null" : json.objectJson(object));
             }
             if ("/action/item/on-npc".equals(path)) {
                 Item item = targetInventoryItem(body, "");
                 NPC npc = targetNpc(body, "target_");
                 boolean result = item != null && npc != null && item.useOn(npc);
-                return itemOnResult("item.on_npc", result, item, npc == null ? "null" : npcJson(npc));
+                return itemOnResult("item.on_npc", result, item, npc == null ? "null" : json.npcJson(npc));
             }
             if ("/action/item/on-item".equals(path)) {
                 Item item = targetInventoryItem(body, "");
                 Item target = targetInventoryItem(body, "target_");
                 boolean result = item != null && target != null && item.useOn(target);
-                return itemOnResult("item.on_item", result, item, target == null ? "null" : itemJson(target));
+                return itemOnResult("item.on_item", result, item, target == null ? "null" : json.itemJson(target));
             }
             if ("/action/spell/cast".equals(path)) {
                 Spell spell = targetSpell(body);
@@ -1152,7 +1153,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
                 Spell spell = targetSpell(body);
                 NPC npc = targetNpc(body);
                 boolean result = spell != null && npc != null && Magic.castSpellOn(spell, npc);
-                return spellResult("spell.on_npc", result, spell, npc == null ? "null" : npcJson(npc));
+                return spellResult("spell.on_npc", result, spell, npc == null ? "null" : json.npcJson(npc));
             }
             if ("/action/tab/open".equals(path)) {
                 String tabName = stringField(body, "tab", "");
@@ -1192,7 +1193,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
                 String action = stringField(body, "action", "");
                 WidgetChild widget = targetWidget(body);
                 boolean result = widget != null && (action.isEmpty() ? widget.interact() : widget.interact(action));
-                return interactionResult("widget.click", result, widget == null ? "null" : widgetJson(widget));
+                return interactionResult("widget.click", result, widget == null ? "null" : json.widgetJson(widget));
             }
             if ("/action/widget/type".equals(path)) {
                 String text = stringField(body, "text", "");
@@ -1203,7 +1204,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
                     sleepQuietly(100L);
                 }
                 boolean result = focused && Keyboard.type(text);
-                return interactionResult("widget.type", result, widget == null ? "null" : widgetJson(widget));
+                return interactionResult("widget.type", result, widget == null ? "null" : json.widgetJson(widget));
             }
             if ("/action/wait-until".equals(path)) {
                 return waitUntilJson(body);
@@ -1404,7 +1405,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "processing", Dialogues.isProcessing()).append(",");
         field(sb, "npc_dialogue", Dialogues.getNPCDialogue()).append(",");
         field(sb, "options_available", Dialogues.areOptionsAvailable()).append(",");
-        sb.append("\"options\":").append(stringArrayJson(Dialogues.getOptions())).append(",");
+        sb.append("\"options\":").append(json.stringArrayJson(Dialogues.getOptions())).append(",");
         field(sb, "widget_selected", Widgets.isWidgetSelected()).append(",");
         field(sb, "selected_widget_id", Widgets.getSelectedWidgetId()).append(",");
         field(sb, "selected_widget_index", Widgets.getSelectedWidgetIndex()).append(",");
@@ -1426,7 +1427,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "processing", Dialogues.isProcessing()).append(",");
         field(sb, "npc_dialogue", Dialogues.getNPCDialogue()).append(",");
         field(sb, "options_available", Dialogues.areOptionsAvailable()).append(",");
-        sb.append("\"options\":").append(stringArrayJson(Dialogues.getOptions()));
+        sb.append("\"options\":").append(json.stringArrayJson(Dialogues.getOptions()));
         sb.append("}");
         sb.append(",\"screen_text\":").append(screenTextJson(visibleOnly, limit));
         sb.append(",\"recent_messages\":").append(recentMessages.json(messageLimit));
@@ -1456,7 +1457,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "processing", Dialogues.isProcessing()).append(",");
         field(sb, "npc_dialogue", Dialogues.getNPCDialogue()).append(",");
         field(sb, "options_available", Dialogues.areOptionsAvailable()).append(",");
-        sb.append("\"options\":").append(stringArrayJson(Dialogues.getOptions()));
+        sb.append("\"options\":").append(json.stringArrayJson(Dialogues.getOptions()));
         sb.append("}");
         return sb.toString();
     }
@@ -1489,7 +1490,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "message0", Client.getMessage0()).append(",");
         field(sb, "message1", Client.getMessage1()).append(",");
         field(sb, "message2", Client.getMessage2()).append(",");
-        sb.append("\"login_screen_text\":").append(stringArrayJson(Client.getLoginScreenText()));
+        sb.append("\"login_screen_text\":").append(json.stringArrayJson(Client.getLoginScreenText()));
         sb.append("}");
         return sb.toString();
     }
@@ -1504,7 +1505,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "x", HintArrow.getX()).append(",");
         field(sb, "y", HintArrow.getY()).append(",");
         field(sb, "height", HintArrow.getHeight()).append(",");
-        sb.append("\"tile\":").append(tileJson(HintArrow.getTile()));
+        sb.append("\"tile\":").append(json.tileJson(HintArrow.getTile()));
         sb.append("}");
         return sb.toString();
     }
@@ -1518,10 +1519,10 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "width", Menu.getWidth()).append(",");
         field(sb, "height", Menu.getHeight()).append(",");
         field(sb, "default_action", Menu.getDefaultAction()).append(",");
-        sb.append("\"bounds\":").append(rectangleJson(Menu.getBounds())).append(",");
+        sb.append("\"bounds\":").append(json.rectangleJson(Menu.getBounds())).append(",");
         sb.append("\"rows\":[");
         boolean first = true;
-        for (MenuRow row : safe(Menu.getMenuRows())) {
+        for (MenuRow row : json.safe(Menu.getMenuRows())) {
             if (row == null) {
                 continue;
             }
@@ -1558,7 +1559,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "selected", Widgets.isWidgetSelected()).append(",");
         field(sb, "selected_widget_id", Widgets.getSelectedWidgetId()).append(",");
         field(sb, "selected_widget_index", Widgets.getSelectedWidgetIndex()).append(",");
-        sb.append("\"widget\":").append(selected == null ? "null" : widgetJson(selected));
+        sb.append("\"widget\":").append(selected == null ? "null" : json.widgetJson(selected));
         sb.append("}");
         return sb.toString();
     }
@@ -1568,7 +1569,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         StringBuilder widgets = new StringBuilder("[");
         int count = 0;
         boolean first = true;
-        for (Widget widget : safe(Widgets.getAllWidgets())) {
+        for (Widget widget : json.safe(Widgets.getAllWidgets())) {
             if (widget == null) {
                 continue;
             }
@@ -1580,7 +1581,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         }
         widgets.append("]");
         StringBuilder sb = new StringBuilder("{");
-        sb.append("\"combined\":").append(stringListJson(combined)).append(",");
+        sb.append("\"combined\":").append(json.stringListJson(combined)).append(",");
         sb.append("\"widgets\":").append(widgets);
         sb.append("}");
         return sb.toString();
@@ -1605,7 +1606,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
                 field(out, "child_id", child.getChildId()).append(",");
                 field(out, "grandchild_id", child.getGrandChildId()).append(",");
                 field(out, "visible", child.isVisible()).append(",");
-                out.append("\"bounds\":").append(rectangleJson(child.getRectangle())).append(",");
+                out.append("\"bounds\":").append(json.rectangleJson(child.getRectangle())).append(",");
                 field(out, "text", child.getText()).append(",");
                 field(out, "name", child.getName()).append(",");
                 field(out, "tooltip", child.getTooltip()).append(",");
@@ -1665,7 +1666,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             }
             return result;
         }
-        for (Widget widget : safe(Widgets.getAllWidgets())) {
+        for (Widget widget : json.safe(Widgets.getAllWidgets())) {
             if (widget == null) {
                 continue;
             }
@@ -1723,7 +1724,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     private String widgetTextRecordsJson(List<WidgetTextRecord> records) {
         StringBuilder sb = new StringBuilder("[");
         boolean first = true;
-        for (WidgetTextRecord record : safe(records)) {
+        for (WidgetTextRecord record : json.safe(records)) {
             if (!first) {
                 sb.append(",");
             }
@@ -1733,7 +1734,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             field(sb, "child_id", record.childId).append(",");
             field(sb, "grandchild_id", record.grandchildId).append(",");
             field(sb, "visible", record.visible).append(",");
-            sb.append("\"bounds\":").append(rectangleJson(record.bounds)).append(",");
+            sb.append("\"bounds\":").append(json.rectangleJson(record.bounds)).append(",");
             field(sb, "clean", record.clean);
             sb.append("}");
         }
@@ -1743,7 +1744,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
 
     private String joinWidgetTexts(List<WidgetTextRecord> records, boolean skipControls) {
         List<String> values = new ArrayList<>();
-        for (WidgetTextRecord record : safe(records)) {
+        for (WidgetTextRecord record : json.safe(records)) {
             if (record.clean == null || record.clean.isEmpty()) {
                 continue;
             }
@@ -1786,9 +1787,9 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         Point screen = viewport.tileToScreen(new Tile(x, y, z));
         Point minimap = viewport.getMiniMapCoordinate(x, y);
         StringBuilder sb = new StringBuilder("{\"ok\":true,\"tile\":");
-        sb.append(tileJson(new Tile(x, y, z))).append(",");
-        sb.append("\"screen\":").append(pointJson(screen)).append(",");
-        sb.append("\"minimap\":").append(pointJson(minimap)).append(",");
+        sb.append(json.tileJson(new Tile(x, y, z))).append(",");
+        sb.append("\"screen\":").append(json.pointJson(screen)).append(",");
+        sb.append("\"minimap\":").append(json.pointJson(minimap)).append(",");
         field(sb, "on_game_screen", screen != null && viewport.isOnGameScreen(screen)).append(",");
         field(sb, "on_main_screen", screen != null && viewport.isVisibleOnMainScreen(screen));
         sb.append("}");
@@ -1883,7 +1884,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         field(sb, "config_value", quest.getConfigValue()).append(",");
         field(sb, "started_setting", quest.getStartedSetting()).append(",");
         field(sb, "finished_setting", quest.getFinishedSetting()).append(",");
-        sb.append("\"settings\":").append(intArrayJson(quest.getSettings()));
+        sb.append("\"settings\":").append(json.intArrayJson(quest.getSettings()));
         sb.append("}");
         return sb.toString();
     }
@@ -1898,7 +1899,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
                 sb.append(",");
             }
             first = false;
-            sb.append(widgetJson(child));
+            sb.append(json.widgetJson(child));
             count++;
             if (count >= widgetQuery.limit) {
                 break;
@@ -1911,320 +1912,6 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     // Existing-and-sorted by relevance: on-screen first, then nearest. The
     // MAX_ENTITIES cap below truncates *after* this ordering, so the entities
     // the agent is most likely to act on survive instead of an arbitrary 40.
-    private <T extends Entity> List<T> byRelevance(List<T> entities) {
-        List<Ranked<T>> ranked = new ArrayList<>();
-        for (T entity : safe(entities)) {
-            if (entity == null || !entity.exists()) {
-                continue;
-            }
-            double distance;
-            try {
-                distance = entity.distance();
-            } catch (Throwable ignored) {
-                distance = Double.MAX_VALUE;
-            }
-            int onScreen;
-            try {
-                onScreen = entity.isOnScreen() ? 0 : 1;
-            } catch (Throwable ignored) {
-                onScreen = 1;
-            }
-            ranked.add(new Ranked<>(entity, onScreen, distance));
-        }
-        ranked.sort((a, b) -> {
-            if (a.onScreen != b.onScreen) {
-                return Integer.compare(a.onScreen, b.onScreen);
-            }
-            return Double.compare(a.distance, b.distance);
-        });
-        List<T> out = new ArrayList<>();
-        for (Ranked<T> item : ranked) {
-            out.add(item.entity);
-        }
-        return out;
-    }
-
-    private String playersJson(List<Player> players) {
-        StringBuilder sb = new StringBuilder("[");
-        int count = 0;
-        for (Player player : byRelevance(players)) {
-            if (player == null || !player.exists()) {
-                continue;
-            }
-            if (count > 0) {
-                sb.append(",");
-            }
-            sb.append(playerJson(player));
-            count++;
-            if (count >= MAX_ENTITIES) {
-                break;
-            }
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    private String playerJson(Player player) {
-        if (player == null) {
-            return "null";
-        }
-        StringBuilder sb = new StringBuilder("{");
-        field(sb, "name", player.getName()).append(",");
-        field(sb, "index", player.getIndex()).append(",");
-        field(sb, "level", player.getLevel()).append(",");
-        field(sb, "health_percent", player.getHealthPercent()).append(",");
-        field(sb, "animation", player.getAnimation()).append(",");
-        field(sb, "moving", player.isMoving()).append(",");
-        field(sb, "in_combat", player.isInCombat()).append(",");
-        field(sb, "skulled", player.isSkulled()).append(",");
-        appendEntityFields(sb, player).append(",");
-        sb.append("\"actions\":").append(stringArrayJson(player.getActions()));
-        sb.append("}");
-        return sb.toString();
-    }
-
-    private String npcsJson(List<NPC> npcs) {
-        StringBuilder sb = new StringBuilder("[");
-        int count = 0;
-        for (NPC npc : byRelevance(npcs)) {
-            if (npc == null || !npc.exists()) {
-                continue;
-            }
-            if (count > 0) {
-                sb.append(",");
-            }
-            sb.append(npcJson(npc));
-            count++;
-            if (count >= MAX_ENTITIES) {
-                break;
-            }
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    private String objectsJson(List<GameObject> objects) {
-        StringBuilder sb = new StringBuilder("[");
-        int count = 0;
-        for (GameObject object : byRelevance(objects)) {
-            if (object == null || !object.exists()) {
-                continue;
-            }
-            if (count > 0) {
-                sb.append(",");
-            }
-            sb.append(objectJson(object));
-            count++;
-            if (count >= MAX_ENTITIES) {
-                break;
-            }
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    private String groundItemsJson(List<GroundItem> items) {
-        StringBuilder sb = new StringBuilder("[");
-        int count = 0;
-        for (GroundItem item : byRelevance(items)) {
-            if (item == null || !item.exists()) {
-                continue;
-            }
-            if (count > 0) {
-                sb.append(",");
-            }
-            sb.append(groundItemJson(item));
-            count++;
-            if (count >= MAX_ENTITIES) {
-                break;
-            }
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    private String npcJson(NPC npc) {
-        StringBuilder sb = new StringBuilder("{");
-        field(sb, "name", npc.getName()).append(",");
-        field(sb, "id", npc.getId()).append(",");
-        field(sb, "real_id", npc.getRealId()).append(",");
-        field(sb, "index", npc.getIndex()).append(",");
-        field(sb, "level", npc.getLevel()).append(",");
-        field(sb, "health_percent", npc.getHealthPercent()).append(",");
-        field(sb, "animation", npc.getAnimation()).append(",");
-        field(sb, "moving", npc.isMoving()).append(",");
-        field(sb, "in_combat", npc.isInCombat()).append(",");
-        appendEntityFields(sb, npc).append(",");
-        sb.append("\"actions\":").append(stringArrayJson(npc.getActions()));
-        sb.append("}");
-        return sb.toString();
-    }
-
-    private String objectJson(GameObject object) {
-        StringBuilder sb = new StringBuilder("{");
-        field(sb, "name", object.getName()).append(",");
-        field(sb, "id", object.getId()).append(",");
-        field(sb, "real_id", object.getRealId()).append(",");
-        field(sb, "index", object.getIndex()).append(",");
-        appendEntityFields(sb, object).append(",");
-        sb.append("\"actions\":").append(stringArrayJson(object.getActions()));
-        sb.append("}");
-        return sb.toString();
-    }
-
-    private String groundItemJson(GroundItem item) {
-        StringBuilder sb = new StringBuilder("{");
-        field(sb, "name", item.getName()).append(",");
-        field(sb, "id", item.getId()).append(",");
-        field(sb, "amount", item.getAmount()).append(",");
-        field(sb, "ownership", item.getOwnership()).append(",");
-        field(sb, "despawn_time", item.getDespawnTime()).append(",");
-        field(sb, "visible_time", item.getVisibleTime()).append(",");
-        appendEntityFields(sb, item).append(",");
-        sb.append("\"actions\":").append(stringArrayJson(item.getActions()));
-        sb.append("}");
-        return sb.toString();
-    }
-
-    private StringBuilder appendEntityFields(StringBuilder sb, Entity entity) {
-        field(sb, "distance", entity.distance()).append(",");
-        field(sb, "on_screen", entity.isOnScreen()).append(",");
-        sb.append("\"tile\":").append(tileJson(entity.getTile())).append(",");
-        sb.append("\"clickable_point\":").append(pointJson(entity.getClickablePoint())).append(",");
-        sb.append("\"center_point\":").append(pointJson(entity.getCenterPoint())).append(",");
-        sb.append("\"bounds\":").append(rectangleJson(safeRectangle(entity)));
-        return sb;
-    }
-
-    private Rectangle safeRectangle(Entity entity) {
-        try {
-            return entity.getBoundingBox();
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private String itemJson(Item item) {
-        if (item == null) {
-            return "null";
-        }
-        StringBuilder sb = new StringBuilder("{");
-        field(sb, "name", item.getName()).append(",");
-        field(sb, "id", item.getId()).append(",");
-        field(sb, "amount", item.getAmount()).append(",");
-        field(sb, "slot", item.getSlot()).append(",");
-        field(sb, "stackable", item.isStackable()).append(",");
-        field(sb, "noted", item.isNoted()).append(",");
-        sb.append("\"actions\":").append(stringArrayJson(item.getActions()));
-        sb.append("}");
-        return sb.toString();
-    }
-
-    private String widgetJson(WidgetChild widget) {
-        if (widget == null) {
-            return "null";
-        }
-        StringBuilder sb = new StringBuilder("{");
-        field(sb, "widget_id", widget.getWidgetId()).append(",");
-        field(sb, "id", widget.getID()).append(",");
-        field(sb, "raw_id", widget.getRawId()).append(",");
-        field(sb, "real_id", widget.getRealID()).append(",");
-        field(sb, "parent_id", widget.getParentID()).append(",");
-        field(sb, "child_id", widget.getChildId()).append(",");
-        field(sb, "grandchild_id", widget.getGrandChildId()).append(",");
-        field(sb, "index", widget.getIndex()).append(",");
-        field(sb, "type", widget.getType()).append(",");
-        field(sb, "text", widget.getText()).append(",");
-        field(sb, "name", widget.getName()).append(",");
-        field(sb, "tooltip", widget.getTooltip()).append(",");
-        field(sb, "selected_action", widget.getSelectedAction()).append(",");
-        field(sb, "spell", widget.getSpell()).append(",");
-        field(sb, "item_id", widget.getItemId()).append(",");
-        field(sb, "item_stack", widget.getItemStack()).append(",");
-        field(sb, "x", widget.getX()).append(",");
-        field(sb, "y", widget.getY()).append(",");
-        field(sb, "relative_x", widget.getRelativeX()).append(",");
-        field(sb, "relative_y", widget.getRelativeY()).append(",");
-        field(sb, "width", widget.getWidth()).append(",");
-        field(sb, "height", widget.getHeight()).append(",");
-        field(sb, "visible", widget.isVisible()).append(",");
-        field(sb, "hidden", widget.isHidden()).append(",");
-        sb.append("\"bounds\":").append(rectangleJson(widget.getRectangle())).append(",");
-        sb.append("\"actions\":").append(stringArrayJson(widget.getActions()));
-        sb.append("}");
-        return sb.toString();
-    }
-
-    private String tileJson(Tile tile) {
-        if (tile == null) {
-            return "null";
-        }
-        return "{\"x\":" + tile.getX() + ",\"y\":" + tile.getY() + ",\"z\":" + tile.getZ() + "}";
-    }
-
-    private String pointJson(Point point) {
-        if (point == null) {
-            return "null";
-        }
-        return "{\"x\":" + point.x + ",\"y\":" + point.y + "}";
-    }
-
-    private String rectangleJson(Rectangle rectangle) {
-        if (rectangle == null) {
-            return "null";
-        }
-        return "{\"x\":" + rectangle.x + ",\"y\":" + rectangle.y + ",\"width\":" + rectangle.width + ",\"height\":" + rectangle.height + "}";
-    }
-
-    private String intArrayJson(int[] values) {
-        StringBuilder sb = new StringBuilder("[");
-        if (values != null) {
-            for (int i = 0; i < values.length; i++) {
-                if (i > 0) {
-                    sb.append(",");
-                }
-                sb.append(values[i]);
-            }
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    private String stringArrayJson(String[] values) {
-        StringBuilder sb = new StringBuilder("[");
-        if (values != null) {
-            for (int i = 0; i < values.length; i++) {
-                if (i > 0) {
-                    sb.append(",");
-                }
-                sb.append(quote(values[i]));
-            }
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    private String stringListJson(List<String> values) {
-        StringBuilder sb = new StringBuilder("[");
-        boolean first = true;
-        for (String value : safe(values)) {
-            if (value == null || value.isEmpty()) {
-                continue;
-            }
-            if (!first) {
-                sb.append(",");
-            }
-            first = false;
-            sb.append(quote(value));
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    private <T> List<T> safe(List<T> values) {
-        return values == null ? new ArrayList<>() : values;
-    }
-
     private NPC targetNpc(String body) {
         return targetNpc(body, "");
     }
@@ -2234,7 +1921,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         require(spec.hasIdentity(), "npc target requires name, id, or tile");
         NPC best = null;
         double bestDistance = Double.MAX_VALUE;
-        for (NPC npc : safe(NPCs.all())) {
+        for (NPC npc : json.safe(NPCs.all())) {
             if (npc == null || !npc.exists() || !spec.matches(npc, npc.getName(), npc.getId(), npc.getActions())) {
                 continue;
             }
@@ -2256,7 +1943,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         require(spec.hasIdentity(), "object target requires name, id, or tile");
         GameObject best = null;
         double bestDistance = Double.MAX_VALUE;
-        for (GameObject object : safe(GameObjects.all())) {
+        for (GameObject object : json.safe(GameObjects.all())) {
             if (object == null || !object.exists() || !spec.matches(object, object.getName(), object.getId(), object.getActions())) {
                 continue;
             }
@@ -2274,7 +1961,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         require(spec.hasIdentity(), "player target requires name, id, or tile");
         Player best = null;
         double bestDistance = Double.MAX_VALUE;
-        for (Player player : safe(Players.all())) {
+        for (Player player : json.safe(Players.all())) {
             if (player == null || !player.exists() || !spec.matches(player, player.getName(), player.getIndex(), player.getActions())) {
                 continue;
             }
@@ -2292,7 +1979,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         require(spec.hasIdentity(), "ground item target requires name, id, or tile");
         GroundItem best = null;
         double bestDistance = Double.MAX_VALUE;
-        for (GroundItem item : safe(GroundItems.all())) {
+        for (GroundItem item : json.safe(GroundItems.all())) {
             if (item == null || !item.exists() || !spec.matches(item, item.getName(), item.getId(), item.getActions())) {
                 continue;
             }
@@ -2325,7 +2012,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         String name = stringField(body, prefix + "name", stringField(body, prefix + "item_name", ""));
         boolean contains = boolField(body, prefix + "contains", false);
         require(slot != Integer.MIN_VALUE || id != Integer.MIN_VALUE || !name.isEmpty(), prefix + "inventory item requires slot, id, or name");
-        for (Item item : safe(Inventory.all())) {
+        for (Item item : json.safe(Inventory.all())) {
             if (item == null || item.getId() <= 0) {
                 continue;
             }
@@ -2396,7 +2083,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             }
             return result;
         }
-        for (Widget widget : safe(Widgets.getAllWidgets())) {
+        for (Widget widget : json.safe(Widgets.getAllWidgets())) {
             if (widget == null) {
                 continue;
             }
@@ -2472,7 +2159,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             int distance = Math.max(0, intField(body, "distance", 0));
             require(x != Integer.MIN_VALUE && y != Integer.MIN_VALUE, "x and y are required");
             boolean met = local != null && local.getTile() != null && local.getTile().distance(new Tile(x, y, z)) <= distance;
-            return new WaitResult(met, "{\"tile\":" + tileJson(local == null ? null : local.getTile()) + "}");
+            return new WaitResult(met, "{\"tile\":" + json.tileJson(local == null ? null : local.getTile()) + "}");
         }
         if ("inventory_contains".equals(normalized) || "inventory".equals(normalized)) {
             int id = intField(body, "id", Integer.MIN_VALUE);
@@ -2510,7 +2197,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
         }
         if ("widget_visible".equals(normalized) || "widget".equals(normalized)) {
             WidgetChild widget = targetWidget(body);
-            return new WaitResult(widget != null && widget.isVisible(), "{\"widget\":" + widgetJson(widget) + "}");
+            return new WaitResult(widget != null && widget.isVisible(), "{\"widget\":" + json.widgetJson(widget) + "}");
         }
         if ("animation_done".equals(normalized) || "idle".equals(normalized)) {
             Player local = Players.getLocal();
@@ -2691,7 +2378,7 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
 
     private int inventoryAmount(int id, String name) {
         int amount = 0;
-        for (Item item : safe(Inventory.all())) {
+        for (Item item : json.safe(Inventory.all())) {
             if (item == null || item.getId() <= 0) {
                 continue;
             }
@@ -2724,27 +2411,12 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
     }
 
     private String itemOnResult(String action, boolean result, Item item, String targetJson) {
-        return "{\"ok\":true,\"action\":" + quote(action) + ",\"result\":" + result + ",\"item\":" + itemJson(item) + ",\"target\":" + targetJson + "}";
+        return "{\"ok\":true,\"action\":" + quote(action) + ",\"result\":" + result + ",\"item\":" + json.itemJson(item) + ",\"target\":" + targetJson + "}";
     }
 
     private String spellResult(String action, boolean result, Spell spell, String targetJson) {
-        return "{\"ok\":true,\"action\":" + quote(action) + ",\"result\":" + result + ",\"spell\":" + spellJson(spell) + ",\"target\":" + targetJson + "}";
+        return "{\"ok\":true,\"action\":" + quote(action) + ",\"result\":" + result + ",\"spell\":" + json.spellJson(spell) + ",\"target\":" + targetJson + "}";
     }
-
-    private String spellJson(Spell spell) {
-        if (spell == null) {
-            return "null";
-        }
-        StringBuilder sb = new StringBuilder("{");
-        field(sb, "name", spell.toString()).append(",");
-        field(sb, "level", spell.getLevel()).append(",");
-        field(sb, "parent", spell.getParent()).append(",");
-        field(sb, "child", spell.getChild()).append(",");
-        field(sb, "can_cast", Magic.canCast(spell));
-        sb.append("}");
-        return sb.toString();
-    }
-
     private boolean isRightClick(String body) {
         String button = stringField(body, "button", "").trim().toLowerCase(Locale.ROOT);
         if (button.isEmpty()) {
@@ -3061,19 +2733,6 @@ public class DreamBotMcpScript extends AbstractScript implements ChatListener {
             return actionMatches(widgetChild.getActions(), action);
         }
     }
-
-    private static final class Ranked<T> {
-        final T entity;
-        final int onScreen;
-        final double distance;
-
-        Ranked(T entity, int onScreen, double distance) {
-            this.entity = entity;
-            this.onScreen = onScreen;
-            this.distance = distance;
-        }
-    }
-
     private static class WaitResult {
         final boolean met;
         final String detailJson;
